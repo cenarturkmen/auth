@@ -15,7 +15,6 @@ router.get("/", checkAuth, (req, res) => {
 
 router.post("/signup", async (req, res, next) => {
   let { email, password } = req.body;
-
   if (!email && !password) {
     return next({ statusCode: 400, errorMessage: "Invalid email or password" });
   }
@@ -79,12 +78,49 @@ router.post("/login", async (req, res, next) => {
   }
 });
 
-router.post("/logout", (req, res) => {
+router.post("/logout", checkAuth, (req, res, next) => {
+  const { authorization } = req.headers;
+
+  if (!authorization) {
+    return next({ statusCode: 400, errorMessage: "token is required" });
+  }
+  // just do it on frontend
   res.status(200).json("logout");
 });
 
-router.post("/changePassword", (req, res) => {
-  res.status(200).json("changePassword");
+router.post("/changePassword", async (req, res, next) => {
+  const { authorization } = req.headers;
+  const { oldPassword, newPassword } = req.body;
+
+  if (!oldPassword || !newPassword) {
+    return next({ statusCode: 400, errorMessage: "password is required" });
+  }
+
+  const token = authorization.split(" ")[1];
+
+  const { email } = jwt.decode(token);
+  const dbConnect = dbo.getDb().collection("users");
+  const findEmailQuery = { email: email };
+  const user = await dbConnect.findOne(findEmailQuery);
+
+  bcrypt.compare(oldPassword, user.password, async function (err, result) {
+    if (result) {
+      bcrypt.hash(newPassword, saltRounds, async function (err, hash) {
+        const newPasswordObject = {
+          $set: { password: hash },
+        };
+        await dbConnect.updateOne(findEmailQuery, newPasswordObject, {
+          upsert: false,
+        });
+        return res.status(200).json({ message: "success" });
+      });
+    } else {
+      return next({
+        statusCode: 400,
+        errorMessage: "Something is wrong",
+      });
+    }
+  });
 });
 
 module.exports = router;
